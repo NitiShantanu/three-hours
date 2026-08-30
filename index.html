@@ -272,6 +272,7 @@
   } catch (e) {}
   var currentTab = state.settings.bootstrapDone ? "today" : "library";
   var libraryFlash = null;
+  var editingTaskId = null;
   var artifactApi = null;
   try {
     if (window.claude && typeof window.claude.use === "function") {
@@ -322,6 +323,17 @@
     while (taskById(id)) { n++; id = base + "-" + n; }
     return id;
   }
+  function updateTask(taskId, fields) {
+    persist(function (s) {
+      var t = s.tasks.find(function (x) { return x.id === taskId; });
+      if (!t) return;
+      t.name = fields.name;
+      t.category = fields.category;
+      t.timeMins = fields.timeMins;
+      t.freqPerMonth = (fields.category === "rotating" || fields.category === "weekday") ? fields.freqPerMonth : null;
+      t.weekday = fields.category === "weekday" ? fields.weekday : null;
+    });
+  }
   function intervalDays(t) { return t.freqPerMonth ? (30 / t.freqPerMonth) : null; }
 
   function deriveLastDone(taskId) {
@@ -371,7 +383,10 @@
     selectedWeekday = selectedWeekday.filter(function (t) { return ov.removed.indexOf(t.id) === -1; });
 
     var required = daily.concat(selectedWeekday);
-    var used = required.reduce(function (s, t) { return s + t.timeMins; }, 0);
+    var added = state.tasks.filter(function (t) { return ov.added.indexOf(t.id) !== -1; });
+    // count anything manually added toward "used" FIRST, so the auto-fill below knows
+    // how much room is actually left rather than always filling to the full budget.
+    var used = required.concat(added).reduce(function (s, t) { return s + t.timeMins; }, 0);
 
     var pool = state.tasks.filter(function (t) { return t.category === "rotating"; });
     pool.sort(function (a, b) { return urgencyOf(b, today).ratio - urgencyOf(a, today).ratio; });
@@ -382,9 +397,6 @@
       if (ov.added.indexOf(t.id) !== -1) return;
       if (used + t.timeMins <= budget) { suggested.push(t); used += t.timeMins; }
     });
-
-    var added = state.tasks.filter(function (t) { return ov.added.indexOf(t.id) !== -1; });
-    added.forEach(function (t) { used += t.timeMins; });
 
     var finalList = required.concat(suggested).concat(added);
     var shownIds = finalList.map(function (t) { return t.id; });
@@ -667,7 +679,38 @@
               '<input class="datein" type="date" data-backfill-exact="' + t.id + '" value="' + (last || '') + '" max="' + today + '" />' +
             '</div>'
             : '') +
+          '<button class="qbtn" data-edit-task="' + t.id + '">' + (editingTaskId === t.id ? 'Close' : 'Edit') + '</button>' +
         '</div>';
+        if (editingTaskId === t.id) {
+          out += '<div class="lib-row edit-form" style="flex-direction:column;align-items:stretch;">' +
+            '<div class="settings-form">' +
+              '<div class="field"><label for="edit-task-name">Task name</label>' +
+                '<input id="edit-task-name" type="text" value="' + escapeHtml(t.name) + '" /></div>' +
+              '<div class="field"><label for="edit-task-category">Type</label>' +
+                '<select id="edit-task-category">' +
+                  ["rotating","daily","weekday","ondemand"].map(function (c) {
+                    var labels = { rotating: "Rotating — comes up every so often", daily: "Daily — every single day", weekday: "Fixed weekday — e.g. every Sunday", ondemand: "On demand — only when asked" };
+                    return '<option value="' + c + '"' + (t.category === c ? ' selected' : '') + '>' + labels[c] + '</option>';
+                  }).join('') +
+                '</select></div>' +
+              '<div class="field" id="edit-task-freq-field"><label for="edit-task-freq">How many times a month?</label>' +
+                '<input id="edit-task-freq" type="number" min="0.1" step="0.1" value="' + (t.freqPerMonth || '') + '" /></div>' +
+              '<div class="field" id="edit-task-weekday-field"><label for="edit-task-weekday">Which day?</label>' +
+                '<select id="edit-task-weekday">' +
+                  ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map(function (d) {
+                    return '<option value="' + d + '"' + (t.weekday === d ? ' selected' : '') + '>' + d + '</option>';
+                  }).join('') +
+                '</select></div>' +
+              '<div class="field"><label for="edit-task-time">Time taken (minutes)</label>' +
+                '<input id="edit-task-time" type="number" min="5" step="5" value="' + t.timeMins + '" /></div>' +
+              '<div style="display:flex;gap:8px;">' +
+                '<button class="btn" data-action="save-edit-task" data-task="' + t.id + '">Save</button>' +
+                '<button class="qbtn" data-action="cancel-edit-task">Cancel</button>' +
+              '</div>' +
+              '<p class="save-hint" id="edit-task-msg"></p>' +
+            '</div>' +
+          '</div>';
+        }
       });
       out += '</div></section>';
     });
@@ -781,6 +824,51 @@
       }
       libraryFlash = "Added “" + name + "”.";
       addCustomTask({ name: name, category: category, timeMins: timeMins, freqPerMonth: freqPerMonth, weekday: weekday, lastDone: lastDone });
+    });
+    app.querySelectorAll("[data-edit-task]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        var id = el.getAttribute("data-edit-task");
+        editingTaskId = (editingTaskId === id) ? null : id;
+        renderApp();
+      });
+    });
+    var editCategorySel = document.getElementById("edit-task-category");
+    if (editCategorySel) {
+      var syncEditFields = function () {
+        var cat = editCategorySel.value;
+        var freqField = document.getElementById("edit-task-freq-field");
+        var wdField = document.getElementById("edit-task-weekday-field");
+        if (freqField) freqField.style.display = (cat === "rotating" || cat === "weekday") ? "" : "none";
+        if (wdField) wdField.style.display = (cat === "weekday") ? "" : "none";
+      };
+      editCategorySel.addEventListener("change", syncEditFields);
+      syncEditFields();
+    }
+    var saveEditBtn = app.querySelector('[data-action="save-edit-task"]');
+    if (saveEditBtn) saveEditBtn.addEventListener("click", function () {
+      var taskId = saveEditBtn.getAttribute("data-task");
+      var name = (document.getElementById("edit-task-name").value || "").trim();
+      var category = document.getElementById("edit-task-category").value;
+      var timeMins = parseInt(document.getElementById("edit-task-time").value, 10);
+      var msgEl = document.getElementById("edit-task-msg");
+      if (!name) { if (msgEl) msgEl.textContent = "Give the task a name first."; return; }
+      if (!timeMins || timeMins <= 0) { if (msgEl) msgEl.textContent = "Time taken should be a positive number of minutes."; return; }
+      var freqPerMonth = null, weekday = null;
+      if (category === "rotating" || category === "weekday") {
+        freqPerMonth = parseFloat(document.getElementById("edit-task-freq").value);
+        if (!freqPerMonth || freqPerMonth <= 0) { if (msgEl) msgEl.textContent = "Enter how many times a month this should happen."; return; }
+      }
+      if (category === "weekday") {
+        weekday = document.getElementById("edit-task-weekday").value;
+      }
+      libraryFlash = "Updated “" + name + "”.";
+      editingTaskId = null;
+      updateTask(taskId, { name: name, category: category, timeMins: timeMins, freqPerMonth: freqPerMonth, weekday: weekday });
+    });
+    var cancelEditBtn = app.querySelector('[data-action="cancel-edit-task"]');
+    if (cancelEditBtn) cancelEditBtn.addEventListener("click", function () {
+      editingTaskId = null;
+      renderApp();
     });
   }
 
