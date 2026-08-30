@@ -380,15 +380,19 @@
     var shownIds = finalList.map(function (t) { return t.id; });
 
     var poolRemaining = pool.filter(function (t) {
-      return shownIds.indexOf(t.id) === -1 && ov.removed.indexOf(t.id) === -1;
+      return shownIds.indexOf(t.id) === -1;
     });
     var onDemand = state.tasks.filter(function (t) { return t.category === "ondemand" && shownIds.indexOf(t.id) === -1; });
     var otherWeekday = weekdayCandidates.filter(function (t) { return shownIds.indexOf(t.id) === -1; });
+    // daily tasks removed for today have nowhere else to live -- surface them so they can be swapped back in
+    var removedDaily = state.tasks.filter(function (t) {
+      return t.category === "daily" && ov.removed.indexOf(t.id) !== -1;
+    });
 
     return {
       today: today, weekday: wd, budget: budget, used: used,
       defaultBudget: state.settings.dailyBudgetMins, budgetOverridden: ov.budgetOverride != null,
-      required: required, suggested: suggested, added: added, finalList: finalList,
+      required: required, suggested: suggested, added: added, finalList: finalList, removedDaily: removedDaily,
       poolRemaining: poolRemaining, onDemand: onDemand, otherWeekday: otherWeekday,
       overflow: used > budget
     };
@@ -557,7 +561,8 @@
       '</section>';
     }
 
-    var poolItems = plan.poolRemaining.concat(plan.otherWeekday);
+    var poolItems = plan.poolRemaining.concat(plan.otherWeekday).concat(plan.removedDaily);
+    poolItems.sort(function (a, b) { return a.name.localeCompare(b.name); });
     out += '<section>' +
       '<details class="pool">' +
         '<summary><span>Swap in something else (' + poolItems.length + ')</span><span class="caret">&#9656;</span></summary>' +
