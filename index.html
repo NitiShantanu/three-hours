@@ -1,0 +1,1339 @@
+<!DOCTYPE html><script type="application/json" id="cowork-artifact-meta">
+{
+  "name": "Mounjaro Eod Dashboard",
+  "schemaVersion": 1,
+  "description": "Mounjaro tracker EOD dashboard: daily stats, weight trajectory vs. required pace, maintenance-calorie/protein meters, and averages-to-date. Updated whenever new daily data is logged.",
+  "mcpTools": [],
+  "mcpServerNames": []
+}
+</script>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mounjaro Tracker — Daily Dashboard</title>
+<style>
+  :root { color-scheme: light; }
+  .viz-root {
+    --surface-1:      #fcfcfb;
+    --page-plane:      #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6; /* blue - actual */
+    --series-2:       #eb6834; /* orange - protein */
+    --series-3:       #1baf7a; /* aqua */
+    --good:           #0ca30c;
+    --warning:        #fab219;
+    --serious:        #ec835a;
+    --critical:       #d03b3b;
+    --seq-100:        #cde2fb;
+    --seq-450:        #2a78d6;
+    --success-text:   #006300;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page-plane:      #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --series-2:       #d95926;
+      --series-3:       #199e70;
+      --good:           #0ca30c;
+      --warning:        #fab219;
+      --serious:        #ec835a;
+      --critical:       #e66767;
+      --seq-100:        #184f95;
+      --seq-450:        #3987e5;
+      --success-text:   #0ca30c;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page-plane:      #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --grid:           #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1:       #3987e5;
+    --series-2:       #d95926;
+    --series-3:       #199e70;
+    --good:           #0ca30c;
+    --warning:        #fab219;
+    --serious:        #ec835a;
+    --critical:       #e66767;
+    --seq-100:        #184f95;
+    --seq-450:        #3987e5;
+    --success-text:   #0ca30c;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: var(--page-plane);
+    color: var(--text-primary);
+  }
+  .viz-root { padding: 24px; max-width: 1080px; margin: 0 auto; }
+
+  .top-bar {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    margin-bottom: 20px; gap: 16px; flex-wrap: wrap;
+  }
+  .title { font-size: 22px; font-weight: 700; margin: 0 0 4px; }
+  .subtitle { font-size: 13px; color: var(--text-secondary); margin: 0; }
+  .theme-toggle {
+    border: 1px solid var(--border); background: var(--surface-1); color: var(--text-secondary);
+    border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer;
+  }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px 20px; margin-bottom: 18px;
+  }
+  .card-title { font-size: 14px; font-weight: 600; margin: 0 0 2px; }
+  .card-caption { font-size: 12px; color: var(--text-muted); margin: 0 0 14px; }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 720px) { .kpi-row { grid-template-columns: repeat(2, 1fr); } }
+  .stat-tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; margin: 0 0 6px; }
+  .stat-value { font-size: 26px; font-weight: 700; margin: 0; line-height: 1.1; }
+  .stat-unit { font-size: 13px; font-weight: 500; color: var(--text-secondary); }
+  .stat-delta { font-size: 12px; margin-top: 6px; display: flex; align-items: center; gap: 4px; }
+  .delta-good { color: var(--success-text); }
+  .delta-muted { color: var(--text-muted); }
+  .delta-warn { color: #b06a00; }
+
+  .two-col { display: grid; grid-template-columns: 1.4fr 1fr; gap: 18px; }
+  @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+
+  .mini-chart-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .mini-chart-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+  .mini-chart-title { font-size: 12.5px; font-weight: 600; }
+  .mini-chart-value { font-size: 12px; color: var(--text-secondary); }
+  .mini-empty { font-size: 11px; color: var(--text-muted); text-align: center; padding: 6px 4px 0; }
+  .trends-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 860px) { .trends-grid-3 { grid-template-columns: 1fr; } }
+
+  svg text { fill: var(--text-secondary); font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .axis-label { font-size: 11px; fill: var(--text-muted); }
+  .grid-line { stroke: var(--grid); stroke-width: 1; }
+  .baseline-line { stroke: var(--baseline); stroke-width: 1; }
+  .point-label { font-size: 11px; font-weight: 600; fill: var(--text-primary); }
+  .point-sublabel { font-size: 10px; fill: var(--text-muted); }
+
+  .legend { display: flex; gap: 16px; margin-top: 10px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+  .legend-swatch { width: 14px; height: 3px; border-radius: 2px; }
+
+  .tooltip {
+    position: absolute; pointer-events: none; background: var(--text-primary); color: var(--surface-1);
+    font-size: 12px; padding: 6px 10px; border-radius: 6px; opacity: 0; transition: opacity 0.1s;
+    white-space: nowrap; z-index: 10;
+  }
+  :root[data-theme="dark"] .tooltip, @media (prefers-color-scheme: dark) { }
+
+  .meter-row { display: flex; flex-direction: column; gap: 16px; }
+  .meter { }
+  .meter-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+  .meter-name { font-size: 13px; font-weight: 600; }
+  .meter-figures { font-size: 12px; color: var(--text-secondary); }
+  .meter-track { position: relative; height: 10px; border-radius: 5px; background: var(--grid); overflow: hidden; }
+  .meter-fill { position: absolute; top: 0; left: 0; height: 100%; border-radius: 5px; }
+  .meter-note { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+  table.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.data-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.02em; color: var(--text-muted); font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--grid); }
+  table.data-table td { padding: 8px 10px; border-bottom: 1px solid var(--grid); color: var(--text-secondary); }
+  table.data-table td.emph { color: var(--text-primary); font-weight: 600; }
+
+  .empty-state { display: flex; align-items: center; gap: 10px; padding: 14px; border-radius: 8px; background: var(--page-plane); border: 1px dashed var(--baseline); font-size: 12.5px; color: var(--text-secondary); }
+
+  .footer-note { font-size: 11.5px; color: var(--text-muted); line-height: 1.5; margin-top: 4px; }
+  .pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 100px; font-weight: 600; }
+  .pill-day { background: var(--seq-100); color: var(--text-primary); }
+</style>
+</head>
+<body>
+<div class="viz-root" id="root">
+
+  <div class="top-bar">
+    <div>
+      <p class="title">Mounjaro Tracker — Daily Dashboard</p>
+      <p class="subtitle" id="subtitle">Loading…</p>
+    </div>
+    <button class="theme-toggle" id="themeToggle">Toggle dark mode</button>
+  </div>
+
+  <!-- KPI ROW -->
+  <div class="kpi-row" id="kpiRow"></div>
+
+  <div class="two-col" style="margin-top:18px;">
+    <!-- WEIGHT TRAJECTORY -->
+    <div class="card">
+      <p class="card-title">Weight trajectory &amp; projection (big picture, toward Target 1)</p>
+      <p class="card-caption" id="trajectoryCaption">Day 1 of tracking → today (actual) vs. the pace needed to hit Target 1, vs. where your actual pace projects you to land — see the zoomed chart below for day-to-day detail</p>
+      <div style="position:relative;">
+        <svg id="trajectoryChart" width="100%" height="280" viewBox="0 0 640 280" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="tooltip" id="trajTooltip"></div>
+      </div>
+      <div class="legend" id="trajLegend"></div>
+    </div>
+
+    <!-- MAINTENANCE / DEFICIT -->
+    <div class="card">
+      <p class="card-title">Calorie balance today</p>
+      <p class="card-caption" id="calorieCaption">Estimated maintenance vs. what's logged so far</p>
+      <div class="meter-row" id="calorieMeters"></div>
+    </div>
+  </div>
+
+  <!-- CONVERSION % OVER TIME -->
+  <div class="card">
+    <p class="card-title">Conversion % — actual weight lost vs. calorie-math implied</p>
+    <p class="card-caption" id="conversionCaption">How much of the running calorie deficit has actually shown up on the smoothed (5DMA) weight trend, day by day, since Day 6</p>
+    <div style="position:relative;">
+      <svg id="conversionChart" width="100%" height="220" viewBox="0 0 640 220" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="tooltip" id="conversionTooltip"></div>
+    </div>
+    <div class="legend" id="conversionLegend"></div>
+  </div>
+
+  <!-- DAILY WEIGHT ZOOMED -->
+  <div class="card">
+    <p class="card-title">Daily weight — zoomed in</p>
+    <p class="card-caption" id="dailyZoomCaption">Just your logged days, scaled tightly so day-to-day moves are visible (the trajectory chart above spans ~18 weeks, which flattens small daily swings)</p>
+    <div style="position:relative;">
+      <svg id="dailyZoomChart" width="100%" height="180" viewBox="0 0 640 180" preserveAspectRatio="xMidYMid meet"></svg>
+      <div class="tooltip" id="zoomTooltip"></div>
+    </div>
+  </div>
+
+  <!-- PROJECTION VS TARGETS -->
+  <div class="card">
+    <p class="card-title">Projection vs. targets, given your actual pace</p>
+    <p class="card-caption" id="projectionCaption">Where your current trend line puts you on each target date</p>
+    <div class="kpi-row" id="projectionRow"></div>
+  </div>
+
+  <!-- 5-DAY TRENDS -->
+  <div class="card">
+    <p class="card-title">5-day moving averages</p>
+    <p class="card-caption">Smooths day-to-day noise — more reliable than single-day readings. Each needs 5 logged days to fill in.</p>
+    <div class="trends-grid-3" id="fiveDayTrends"></div>
+  </div>
+
+  <div class="two-col">
+    <!-- AVERAGES & TRENDS -->
+    <div class="card">
+      <p class="card-title">Averages &amp; trends</p>
+      <p class="card-caption">Across every day logged so far</p>
+      <div id="trendsBody"></div>
+    </div>
+
+    <!-- TODAY'S LOG -->
+    <div class="card">
+      <p class="card-title">Today's log</p>
+      <p class="card-caption" id="todayCaption"></p>
+      <table class="data-table" id="todayTable"></table>
+    </div>
+  </div>
+
+  <div class="card">
+    <p class="card-title">Assumptions behind these numbers</p>
+    <p class="footer-note" id="assumptions"></p>
+  </div>
+
+</div>
+
+<script>
+// ---------- DATA (from claude/daily-log.md and claude/profile-and-goals.md) ----------
+const profile = {
+  sex: "male",
+  age: 50,
+  heightCm: 167.6,
+  activityLevel: "sedentary outside workouts",
+  activityFactor: 1.2,
+  gymBonusKcal: 175,
+  proteinGPerKg: 1.4, // suggested, 1.2-1.6 g/kg range for muscle preservation on GLP-1
+};
+
+// Baseline for all graphs/pace/projection calcs is Day 1 of tracking (2026-08-12), not the
+// original pre-tracking Mounjaro journey (which started ~Oct 2025 at 104.5kg — kept as
+// background context in profile-and-goals.md only, not used in any calc below).
+// Focus narrowed to Target 1 only (set 2026-08-14, per user request) — Target 2 kept here for
+// later re-enabling but is not shown on the chart, projection row, or KPIs right now.
+// Starting weight (revised 2026-08-18, per user request "let the starting weight be the average
+// of the first 5 days weight logged in"): to remove single-day noise from the Day 1 reading, the
+// baseline weight used for pace/total-lost/projection math is the average of the first 5 logged
+// days (2026-08-12→2026-08-16 = 90.82kg), not the literal Day 1 reading (91.15kg). This is a
+// fixed value (not a moving average) anchored at the Day 1 date for chart/x-axis purposes. The
+// raw 91.15kg Day 1 reading still appears as-logged in the `days` array and the daily/zoomed
+// weight chart — only this milestone reference point changed.
+const milestones = {
+  start:   { date: "2026-08-12", weight: 90.82, label: "Day 1 (baseline avg)" },
+  current: { date: "2026-08-29", weight: 89.9, label: "Today" },
+  target1: { date: "2026-12-15", weight: 85,    label: "Target 1" },
+  target2: { date: "2027-06-15", weight: 75,    label: "Target 2" }, // not currently rendered
+};
+
+// One row per day logged in chat. Add a row here each day Claude updates the log.
+const days = [
+  {
+    date: "2026-08-12",
+    weight: 91.15,
+    dose: "15mg",
+    calories: 1775,
+    protein: 116,
+    water: 2.20,
+    steps: 2546,
+    activity: "40 min light gym workout",
+    bowel: "Baseline: bloating & constipation reported as ongoing issue",
+    partial: false,
+  },
+  {
+    date: "2026-08-13",
+    weight: 90.6,
+    dose: "15mg (shot taken today)",
+    calories: 1340,
+    protein: 118,
+    water: 2.00,
+    steps: 3175,
+    activity: "30 min physiotherapy session",
+    bowel: "Not logged today",
+    partial: false,
+  },
+  {
+    date: "2026-08-14",
+    weight: 90.9,
+    dose: "Not due (weekly shot is Thursdays)",
+    calories: 1275,
+    protein: 102,
+    water: 3.25,
+    steps: 4043,
+    activity: "No formal activity logged (4,043 steps only)",
+    bowel: "Not logged today",
+    partial: false,
+  },
+  {
+    date: "2026-08-15",
+    weight: 91.25,
+    dose: "Not due (weekly shot is Thursdays)",
+    calories: 1437,
+    protein: 88,
+    water: 2.50,
+    steps: 3315,
+    activity: "40 min light gym workout",
+    bowel: "Constipated and bloated (reported retroactively) — took a laxative",
+    partial: false,
+  },
+  {
+    date: "2026-08-16",
+    weight: 90.2,
+    dose: "Not due (weekly shot is Thursdays)",
+    calories: 1995,
+    protein: 112,
+    water: 2.10,
+    steps: 2201,
+    activity: "No formal activity logged (2,201 steps only)",
+    bowel: "Took a laxative (for yesterday's constipation/bloating)",
+    partial: false,
+  },
+  {
+    date: "2026-08-17",
+    weight: 90.4,
+    dose: "Not due (weekly shot is Thursdays)",
+    calories: 1540,
+    protein: 114,
+    water: 2.25,
+    steps: 2337,
+    activity: "40 min light gym workout",
+    bowel: null,
+    partial: false,
+  },
+  {
+    date: "2026-08-18",
+    weight: 89.5,
+    dose: "Not due (weekly shot is Thursdays)",
+    calories: 1837,
+    protein: 127,
+    water: 2.00,
+    steps: 5056,
+    activity: "No formal activity logged (5,056 steps only)",
+    bowel: "Took a laxative last night — today's drop should be read cautiously, likely partly bowel/water weight rather than fat loss (same pattern as Day 5)",
+    partial: false,
+  },
+  {
+    date: "2026-08-19",
+    weight: 90.1,
+    dose: "Not due (weekly shot is Thursdays)",
+    calories: 1630,
+    protein: 117,
+    water: 2.95,
+    steps: 3500,
+    activity: "No formal activity logged (3,500 steps only)",
+    bowel: "Not logged today",
+    partial: false,
+  },
+  {
+    date: "2026-08-20",
+    weight: 90.05,
+    dose: "15mg shot taken today (Thursday — weekly dosing day)",
+    calories: 1405,
+    protein: 106,
+    water: 2.40,
+    steps: 2572,
+    activity: "40 min light gym workout",
+    bowel: "Not logged today",
+    partial: false,
+  },
+  {
+    date: "2026-08-21",
+    weight: 90.45,
+    dose: "Not due (weekly shot is Thursdays; next due 2026-08-27)",
+    calories: 1285,
+    protein: 103,
+    water: 3.10,
+    steps: 2321,
+    activity: "No formal activity logged (2,321 steps only)",
+    bowel: "Not logged today",
+    partial: false,
+  },
+  {
+    date: "2026-08-22",
+    weight: 90.7,
+    dose: "Not due (weekly shot is Thursdays; next due 2026-08-27)",
+    calories: 1823,
+    protein: 102,
+    water: 2.00,
+    steps: null,
+    activity: "Gym session (duration not specified)",
+    bowel: "Not logged today",
+    partial: false,
+  },
+  {
+    date: "2026-08-23",
+    weight: 89.95,
+    dose: "Not due (weekly shot is Thursdays; next due 2026-08-27)",
+    calories: 1915,
+    protein: 121,
+    water: 2.00,
+    steps: null,
+    activity: null,
+    bowel: null,
+    partial: false,
+  },
+  {
+    date: "2026-08-24",
+    weight: 90.3,
+    dose: "Not due (weekly shot is Thursdays; next due 2026-08-27)",
+    calories: 1475,
+    protein: 109,
+    water: 2.00,
+    steps: null,
+    activity: null,
+    bowel: null,
+    partial: false,
+  },
+  {
+    date: "2026-08-25",
+    weight: 90.3,
+    dose: "Not due (weekly shot is Thursdays; next due 2026-08-27)",
+    calories: 1490,
+    protein: 107,
+    water: 1.80,
+    steps: null,
+    activity: "30 min light weights",
+    bowel: null,
+    partial: false,
+  },
+  {
+    date: "2026-08-26",
+    weight: 90.1,
+    dose: "Not due (weekly shot is Thursdays; next due 2026-08-27)",
+    calories: 1795,
+    protein: 122,
+    water: 1.70,
+    steps: null,
+    activity: null,
+    bowel: null,
+    partial: false,
+  },
+  {
+    date: "2026-08-27",
+    weight: 90.6,
+    dose: "15mg shot taken today (Thursday — weekly dosing day)",
+    calories: 1305,
+    protein: 99,
+    water: 2.00,
+    steps: null,
+    activity: null,
+    bowel: null,
+    partial: false,
+  },
+  {
+    date: "2026-08-28",
+    weight: 90,
+    dose: "Not due (weekly shot is Thursdays; next due 2026-09-03)",
+    calories: 1275,
+    protein: 85,
+    water: 2.00,
+    steps: null,
+    activity: "30 min light weights",
+    bowel: null,
+    partial: false,
+  },
+  {
+    date: "2026-08-29",
+    weight: 89.9,
+    dose: "Not due (weekly shot is Thursdays; next due 2026-09-03)",
+    calories: 1165,
+    protein: 93,
+    water: 2.00,
+    steps: null,
+    activity: null,
+    bowel: null,
+    partial: true,
+  },
+];
+
+// ---------- DERIVED ----------
+const today = days[days.length - 1];
+
+function maintenanceForDay(d) {
+  const bmrDay = 10 * d.weight + 6.25 * profile.heightCm - 5 * profile.age + 5;
+  const gymDay = /gym|weights|workout/i.test(d.activity || "");
+  return bmrDay * profile.activityFactor + (gymDay ? profile.gymBonusKcal : 0);
+}
+const bmr = 10 * milestones.current.weight + 6.25 * profile.heightCm - 5 * profile.age + 5;
+const maintenanceBase = bmr * profile.activityFactor;
+const isGymDay = /gym|weights|workout/i.test(today.activity || "");
+const maintenanceToday = maintenanceForDay(today);
+const proteinTarget = milestones.current.weight * profile.proteinGPerKg;
+
+// Conversion-% tracking window (added 2026-08-24, per user request). Starts the day AFTER the
+// first 5DMA reading (the Day 1-5 average) becomes available, not Day 1 itself. Day 5's 5DMA
+// reading is *by construction* identical to the fixed Day 1-5 baseline (it's the same average),
+// so an "actual weight lost" figure computed against that day would trivially read 0 — not a
+// real data point. Day 6 (2026-08-17) is the first day the 5DMA genuinely diverges from the
+// frozen baseline, so both the KPI tiles below and the chart later sum calorie deficit starting
+// there. (Days 1-5's own deficit is what produced the baseline number itself — counting it again
+// here would double-count it against a loss that's already "spent" establishing that baseline.)
+const CONVERSION_TRACKING_START = "2026-08-17";
+
+// Total calorie deficit accumulated from the tracking-start date through today, including the
+// current partial day (added 2026-08-24, per user request for three summary tiles translating
+// the running calorie deficit into an implied weight-loss figure vs. the actual 5DMA-based loss).
+// Today's partial-day deficit compares calories logged SO FAR against that day's full-day
+// maintenance estimate, so this number shrinks every time another meal is logged today, and
+// firms up once the day is marked complete.
+const totalDeficitSoFar = days
+  .filter(d => d.date >= CONVERSION_TRACKING_START)
+  .reduce((sum, d) => sum + (maintenanceForDay(d) - d.calories), 0);
+const idealWeightLostKg = totalDeficitSoFar / 7700; // 7700 kcal ≈ 1kg of fat, the standard rule-of-thumb conversion
+
+const loggedDays = days.length;
+const avg = (key) => {
+  const vals = days.map(d => d[key]).filter(v => v !== null && v !== undefined);
+  return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : null;
+};
+const avgCalories = avg("calories");
+const avgProtein = avg("protein");
+const avgSteps = avg("steps");
+const avgWater = avg("water");
+
+function daysBetween(a, b) { return (new Date(b) - new Date(a)) / 86400000; }
+
+// ---------- Daily series + 5-day moving averages ----------
+// Sorted ascending by date. Calorie-deficit/protein series exclude partial (still-logging) days.
+const sortedDays = [...days].sort((a, b) => new Date(a.date) - new Date(b.date));
+const dailySeries = sortedDays.map(d => ({
+  date: d.date,
+  weight: d.weight,
+  protein: d.partial ? null : d.protein,
+  deficit: d.partial ? null : (maintenanceForDay(d) - d.calories),
+}));
+
+// Trailing N-day average: defined only once N consecutive non-null values are available ending at i.
+function trailingMA(series, key, window) {
+  const out = [];
+  for (let i = 0; i < series.length; i++) {
+    if (i < window - 1) { out.push(null); continue; }
+    const slice = series.slice(i - window + 1, i + 1);
+    const vals = slice.map(s => s[key]);
+    if (vals.some(v => v === null || v === undefined)) { out.push(null); continue; }
+    out.push(vals.reduce((a, b) => a + b, 0) / window);
+  }
+  return out;
+}
+const MA_WINDOW = 5;
+const weightMA = trailingMA(dailySeries, "weight", MA_WINDOW);
+const proteinMA = trailingMA(dailySeries, "protein", MA_WINDOW);
+const deficitMA = trailingMA(dailySeries, "deficit", MA_WINDOW);
+
+// Latest available 5DMA weight reading (moved up here 2026-08-24, per user request: "today's
+// weight" for every downstream calculation below — remaining-to-target, pace, projections —
+// should always be the 5DMA figure for that day, never the raw single-day reading. Computed once
+// here and reused everywhere below rather than redeclared per section.
+const maPointsDefined = dailySeries.map((d, i) => ({ date: d.date, value: weightMA[i] })).filter(p => p.value !== null);
+const latestWeightMA = maPointsDefined.length ? maPointsDefined[maPointsDefined.length - 1] : null;
+
+// "Current weight" (milestones.current.weight) is an FYI figure only — the latest single raw
+// reading, shown for reference and used as one input to the 5DMA above. It does NOT feed the
+// pace, target-distance, or projection math below; those all use latestWeightMA instead, falling
+// back to the raw reading only before 5 days are logged and no 5DMA exists yet.
+const totalLost = milestones.start.weight - milestones.current.weight; // FYI delta only — raw weight, not used elsewhere
+const pctLost = (totalLost / milestones.start.weight) * 100;
+const remainingToT1 = (latestWeightMA ? latestWeightMA.value : milestones.current.weight) - milestones.target1.weight;
+
+const weeksSoFar = daysBetween(milestones.start.date, milestones.current.date) / 7;
+const actualPaceKgWk = totalLost / weeksSoFar;
+const weeksToT1 = daysBetween(milestones.current.date, milestones.target1.date) / 7;
+const requiredPaceKgWk = remainingToT1 / weeksToT1;
+
+// ---------- Conversion % over time (added 2026-08-24, per user request) ----------
+// One point per day from CONVERSION_TRACKING_START (Day 6) onward, wherever that day already has
+// a 5DMA reading. ideal = cumulative deficit-since-Day-6 ÷ 7700; actual = Day 1-5 baseline minus
+// that day's 5DMA; conversion% = actual ÷ ideal. Today's point is marked partial and will move as
+// more of today's meals get logged (more calories logged narrows today's contribution to the
+// cumulative deficit, which moves the ideal-loss denominator).
+const conversionSeries = (() => {
+  const out = [];
+  let cum = 0;
+  sortedDays.forEach((d, i) => {
+    if (d.date < CONVERSION_TRACKING_START) return;
+    cum += maintenanceForDay(d) - d.calories;
+    const ma = weightMA[i];
+    if (ma === null || ma === undefined) return; // no 5DMA reading for this day yet
+    const idealKg = cum / 7700;
+    const actualKg = milestones.start.weight - ma;
+    const convPct = idealKg > 0 ? (actualKg / idealKg) * 100 : null;
+    out.push({ date: d.date, idealKg, actualKg, convPct, partial: d.partial });
+  });
+  return out;
+})();
+
+// ---------- Recent pace + projection (given actual progress) ----------
+// Rolling 5DMA (set 2026-08-16): the weight series is smoothed with a trailing 5-day window —
+// the first point lands on Day 5 (avg of Day 1-5), the next on Day 6 (avg of Day 2-6), and so on.
+// Pace-so-far calc — REVISED 2026-08-24, per user request (they spotted the inconsistency
+// directly): this used to measure elapsed time from Day 1's date, treating the Day 1-5 baseline
+// as a noise-reduced stand-in for "Day 1's true weight." But Day 5's 5DMA reading is *identical*
+// to that baseline by construction (same average) — zero actual change is attributable to Days
+// 1-5, all of it happens from Day 6 onward (same logic as CONVERSION_TRACKING_START above).
+// Measuring elapsed time from Day 1 pads the denominator with 5 days of guaranteed-zero movement,
+// which deflates the pace (e.g. 0.53kg over 1.71 weeks ≈ 0.31 kg/wk) versus measuring from Day 6,
+// when the number actually starts moving (0.53kg over 1.0 week = 0.53 kg/wk — the latter is now
+// used). Pace is therefore:
+//   (baseline weight − latest 5DMA reading) ÷ weeks elapsed since Day 6 (CONVERSION_TRACKING_START).
+let recentPaceKgWk, recentPaceSource, recentPaceBasisShort;
+if (maPointsDefined.length >= 1) {
+  const latest = latestWeightMA;
+  const wks = daysBetween(CONVERSION_TRACKING_START, latest.date) / 7;
+  recentPaceKgWk = wks > 0 ? (milestones.start.weight - latest.value) / wks : 0;
+  recentPaceSource = maPointsDefined.length === 1
+    ? "your 5-day weight average vs. the Day 1 baseline (first 5DMA reading — will keep firming up as more days land)"
+    : "your 5-day weight average vs. the Day 1 baseline, measured from Day 6 onward";
+  recentPaceBasisShort = "5DMA vs Day 1, since Day 6";
+} else {
+  recentPaceKgWk = actualPaceKgWk;
+  const daysNeeded = 5 - loggedDays > 0 ? 5 - loggedDays : 0;
+  recentPaceSource = `your start→today average (5-day average needs ${daysNeeded} more logged day${daysNeeded === 1 ? "" : "s"})`;
+  recentPaceBasisShort = `coarse avg, 5DMA in ${daysNeeded}d`;
+}
+function addDays(dateStr, daysToAdd) {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + Math.round(daysToAdd));
+  return d.toISOString().slice(0, 10);
+}
+// Projected HIT DATE for Target 1's weight at the current pace (revised 2026-08-19, per user
+// request — show the date the target weight is reached at the current trend, rather than the
+// weight the trend would reach on Target 1's fixed calendar date). Only defined while
+// recentPaceKgWk is actually positive (losing weight); a flat/rising trend never reaches a
+// lower target, so there's no future hit date to project.
+const weeksNeededAtPace = recentPaceKgWk > 0 ? remainingToT1 / recentPaceKgWk : null;
+const projectedHitDate = weeksNeededAtPace !== null ? addDays(milestones.current.date, weeksNeededAtPace * 7) : null;
+// Positive = later than Target 1's fixed date (behind schedule); negative = earlier (ahead).
+const scheduleGapWeeks = weeksNeededAtPace !== null ? weeksNeededAtPace - weeksToT1 : null;
+
+// ---------- RENDER: header ----------
+document.getElementById("subtitle").textContent =
+  `${formatDate(today.date)} · Day ${loggedDays} of tracking · Dose ${today.dose ?? "not logged yet"} · ${today.partial ? "day in progress" : "day complete"}`;
+
+function formatDate(iso) {
+  const d = new Date(iso + "T00:00:00");
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+// ---------- RENDER: KPI row ----------
+const daysUntil5DMA = Math.max(0, 5 - loggedDays);
+
+// Actual weight lost per the smoothed trend: Day 1 baseline (constant, 90.82kg) minus the latest
+// 5DMA reading (changes daily) — deliberately NOT the same as totalLost above, which uses today's
+// raw weight rather than the smoothed 5DMA. Conversion % compares this actual/measured loss
+// against the calorie-math-implied loss (idealWeightLostKg) — how much of the theoretical,
+// deficit-implied loss has actually shown up on the smoothed trend so far. Below 100% is normal
+// (water retention, measurement noise, and metabolic adaptation mean actual loss usually lags the
+// simple 7700-kcal rule of thumb) — not itself a red flag (added 2026-08-24, per user request).
+const actualWeightLostKg = latestWeightMA ? milestones.start.weight - latestWeightMA.value : null;
+const conversionPct = (actualWeightLostKg !== null && idealWeightLostKg > 0)
+  ? (actualWeightLostKg / idealWeightLostKg) * 100
+  : null;
+const kpis = [
+  {
+    label: "Starting weight (Day 1-5 avg)",
+    value: milestones.start.weight.toFixed(2),
+    unit: "kg",
+    delta: `baseline for all pace/total-lost/projection calcs · anchored to ${formatDate(milestones.start.date)}`,
+    deltaClass: "delta-muted",
+  },
+  {
+    label: "Current weight",
+    value: milestones.current.weight.toFixed(2),
+    unit: "kg",
+    delta: `${totalLost >= 0 ? "−" : "+"}${Math.abs(totalLost).toFixed(2)} kg since Day 1 of tracking (${totalLost >= 0 ? "−" : "+"}${Math.abs(pctLost).toFixed(1)}%)`,
+    deltaClass: totalLost > 0 ? "delta-good" : "delta-muted",
+  },
+  {
+    label: "5-day average (5DMA)",
+    value: latestWeightMA ? latestWeightMA.value.toFixed(2) : "—",
+    unit: latestWeightMA ? "kg" : "",
+    delta: latestWeightMA
+      ? `as of ${formatDate(latestWeightMA.date)} · smooths out daily noise`
+      : `needs ${daysUntil5DMA} more logged day${daysUntil5DMA === 1 ? "" : "s"}`,
+    deltaClass: "delta-muted",
+  },
+  {
+    label: "Pace so far vs. needed (5DMA, since Day 6)",
+    value: recentPaceKgWk.toFixed(2),
+    unit: "kg/wk",
+    delta: `needs ~${requiredPaceKgWk.toFixed(2)} kg/wk · basis: ${recentPaceBasisShort}`,
+    deltaClass: recentPaceKgWk >= requiredPaceKgWk * 0.85 ? "delta-good" : "delta-warn",
+  },
+  {
+    label: "To Target 1 (85kg)",
+    value: remainingToT1.toFixed(2),
+    unit: "kg",
+    delta: `by ${formatDate(milestones.target1.date)}`,
+    deltaClass: "delta-muted",
+  },
+  {
+    label: "Days logged",
+    value: String(loggedDays),
+    unit: "",
+    delta: loggedDays < 7 ? "trends firm up after ~7 days" : "trend window active",
+    deltaClass: "delta-muted",
+  },
+  {
+    label: "Ideal weight lost (calorie math)",
+    value: idealWeightLostKg.toFixed(2),
+    unit: "kg",
+    delta: `${Math.round(totalDeficitSoFar).toLocaleString()} kcal deficit since ${formatDate(CONVERSION_TRACKING_START)} (Day 6) ÷ 7700 · updates with every meal logged`,
+    deltaClass: "delta-muted",
+  },
+  {
+    label: "Actual weight lost (5DMA)",
+    value: actualWeightLostKg !== null ? actualWeightLostKg.toFixed(2) : "—",
+    unit: actualWeightLostKg !== null ? "kg" : "",
+    delta: actualWeightLostKg !== null
+      ? `${milestones.start.weight.toFixed(2)}kg baseline − ${latestWeightMA.value.toFixed(2)}kg 5DMA`
+      : `needs ${daysUntil5DMA} more logged day${daysUntil5DMA === 1 ? "" : "s"}`,
+    deltaClass: "delta-muted",
+  },
+  {
+    label: "Conversion % (actual ÷ ideal)",
+    value: conversionPct !== null ? conversionPct.toFixed(0) : "—",
+    unit: conversionPct !== null ? "%" : "",
+    delta: conversionPct !== null
+      ? (conversionPct >= 100 ? "actual loss is ahead of the calorie math" : "actual loss vs. what the calorie deficit alone implies")
+      : "needs both figures above first",
+    deltaClass: "delta-muted",
+  },
+];
+const kpiRow = document.getElementById("kpiRow");
+kpis.forEach(k => {
+  const tile = document.createElement("div");
+  tile.className = "stat-tile";
+  tile.innerHTML = `
+    <p class="stat-label">${k.label}</p>
+    <p class="stat-value">${k.value}<span class="stat-unit"> ${k.unit}</span></p>
+    <p class="stat-delta ${k.deltaClass}">${k.delta}</p>
+  `;
+  kpiRow.appendChild(tile);
+});
+
+// ---------- RENDER: trajectory chart ----------
+(function renderTrajectory() {
+  const svg = document.getElementById("trajectoryChart");
+  const W = 640, H = 280, padL = 46, padR = 46, padT = 34, padB = 34;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+
+  // X-axis: Day 1 of tracking → Target 1's date, extended further out if the projected hit-date
+  // (at current pace) falls after Target 1's date — so a slower-than-needed trend still fits on
+  // the chart instead of running off the right edge (set 2026-08-19, per user request to show
+  // the projected HIT DATE for the target weight rather than the weight projected on a fixed date).
+  // "Today" on this chart plots the 5DMA reading, not the raw single-day weight (added
+  // 2026-08-24, per user request — every downstream calc treats "today's weight" as the 5DMA
+  // figure, so this chart's solid actual-progress line should end there too, rather than on a
+  // noisier raw point). Falls back to the raw reading only before Day 5, when no 5DMA exists yet.
+  const currentPoint = {
+    date: milestones.current.date,
+    weight: latestWeightMA ? latestWeightMA.value : milestones.current.weight,
+    label: latestWeightMA ? "Today (5DMA)" : milestones.current.label,
+  };
+  const allPoints = [milestones.start, currentPoint, milestones.target1];
+  const dates = allPoints.map(p => new Date(p.date).getTime());
+  if (projectedHitDate) dates.push(new Date(projectedHitDate).getTime());
+  const xDateMin = Math.min(...dates), xDateMax = Math.max(...dates);
+  // Y-axis: fixed 84–92kg by default so day-to-day movement reads clearly (set 2026-08-14, per
+  // user request) — auto-expands only if actual/projected weight breaks outside that range.
+  const Y_AXIS_MIN = 84, Y_AXIS_MAX = 92;
+  const chartWeights = [milestones.start.weight, currentPoint.weight, milestones.target1.weight]
+    .concat(dailySeries.map(d => d.weight));
+  const yMin = Math.min(Y_AXIS_MIN, Math.floor(Math.min(...chartWeights)) - 1);
+  const yMax = Math.max(Y_AXIS_MAX, Math.ceil(Math.max(...chartWeights)) + 1);
+
+  const x = t => padL + ((t - xDateMin) / (xDateMax - xDateMin)) * plotW;
+  const y = w => padT + (1 - (w - yMin) / (yMax - yMin)) * plotH;
+
+  let svgContent = "";
+
+  // gridlines (y) — every 2kg across the fixed range by default
+  const ySteps = Math.max(2, Math.round((yMax - yMin) / 2));
+  for (let i = 0; i <= ySteps; i++) {
+    const w = yMin + (i / ySteps) * (yMax - yMin);
+    const yy = y(w);
+    svgContent += `<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" class="grid-line"/>`;
+    svgContent += `<text x="${padL - 8}" y="${yy + 3}" text-anchor="end" class="axis-label">${w.toFixed(0)}</text>`;
+  }
+
+  // baseline axis
+  svgContent += `<line x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}" class="baseline-line"/>`;
+
+  // actual line: start -> current (solid)
+  const p0 = { x: x(new Date(milestones.start.date).getTime()), y: y(milestones.start.weight) };
+  const p1 = { x: x(new Date(currentPoint.date).getTime()), y: y(currentPoint.weight) };
+  svgContent += `<line x1="${p0.x}" y1="${p0.y}" x2="${p1.x}" y2="${p1.y}" stroke="var(--series-1)" stroke-width="2.5" stroke-linecap="round"/>`;
+
+  // pace needed: current -> target1 (dashed)
+  const p2 = { x: x(new Date(milestones.target1.date).getTime()), y: y(milestones.target1.weight) };
+  svgContent += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="var(--baseline)" stroke-width="2" stroke-dasharray="5,5" stroke-linecap="round"/>`;
+
+  // projected line: current -> the date this trend actually reaches Target 1's weight (revised
+  // 2026-08-19, per user request — show the projected HIT DATE, not the weight reached on
+  // Target 1's fixed date). If the current pace isn't losing weight (recentPaceKgWk <= 0), there
+  // is no future date at which the target is reached, so no projected line/dot is drawn.
+  let projPts = [];
+  if (projectedHitDate) {
+    const ppDate = { x: x(new Date(projectedHitDate).getTime()), y: y(milestones.target1.weight) };
+    svgContent += `<line x1="${p1.x}" y1="${p1.y}" x2="${ppDate.x}" y2="${ppDate.y}" stroke="var(--series-2)" stroke-width="2.5" stroke-linecap="round"/>`;
+    projPts = [
+      { p: ppDate, label: formatDate(projectedHitDate), sub: "Projected hit date", date: projectedHitDate },
+    ];
+    projPts.forEach((pt, i) => {
+      svgContent += `<circle cx="${pt.p.x}" cy="${pt.p.y}" r="4.5" fill="var(--series-2)" stroke="var(--surface-1)" stroke-width="2" class="proj-dot" data-idx="${i}"/>`;
+      const labelX = pt.p.x - 10;
+      svgContent += `<text x="${labelX}" y="${pt.p.y - 14}" text-anchor="end" class="point-label">${pt.label}</text>`;
+      svgContent += `<text x="${labelX}" y="${pt.p.y - 25}" text-anchor="end" class="point-sublabel">${pt.sub}</text>`;
+    });
+  }
+
+  // points + labels
+  const pts = [
+    { p: p0, m: milestones.start, color: "var(--series-1)" },
+    { p: p1, m: currentPoint, color: "var(--series-1)" },
+    { p: p2, m: milestones.target1, color: "var(--text-muted)" },
+  ];
+  pts.forEach((pt, i) => {
+    svgContent += `<circle cx="${pt.p.x}" cy="${pt.p.y}" r="5" fill="${pt.color}" stroke="var(--surface-1)" stroke-width="2" class="traj-dot" data-idx="${i}"/>`;
+    const isFirst = i === 0, isLast = i === pts.length - 1;
+    const anchor = isFirst ? "start" : isLast ? "end" : "middle";
+    const dx = isFirst ? 10 : isLast ? -10 : 0;
+    const labelX = pt.p.x + dx;
+    const labelY = i % 2 === 0 ? pt.p.y - 14 : pt.p.y + 20;
+    svgContent += `<text x="${labelX}" y="${labelY}" text-anchor="${anchor}" class="point-label">${Number(pt.m.weight).toFixed(2)}kg</text>`;
+    svgContent += `<text x="${labelX}" y="${labelY + (i % 2 === 0 ? -11 : 12)}" text-anchor="${anchor}" class="point-sublabel">${pt.m.label}</text>`;
+  });
+
+  svg.innerHTML = svgContent;
+
+  // hover tooltips
+  const tooltip = document.getElementById("trajTooltip");
+  function wireTooltip(selector, getHtml, getPoint) {
+    svg.querySelectorAll(selector).forEach(dot => {
+      dot.addEventListener("mouseenter", () => {
+        const idx = +dot.getAttribute("data-idx");
+        tooltip.innerHTML = getHtml(idx);
+        tooltip.style.opacity = 1;
+        const rect = svg.getBoundingClientRect();
+        const scale = rect.width / W;
+        const pt = getPoint(idx);
+        tooltip.style.left = (pt.x * scale) + "px";
+        tooltip.style.top = (pt.y * scale - 34) + "px";
+      });
+      dot.addEventListener("mouseleave", () => { tooltip.style.opacity = 0; });
+    });
+  }
+  wireTooltip(".traj-dot", idx => {
+    const info = pts[idx].m;
+    return `<strong>${info.label}</strong> · ${formatDate(info.date)} · ${Number(info.weight).toFixed(2)} kg`;
+  }, idx => pts[idx].p);
+  wireTooltip(".proj-dot", idx => {
+    const info = projPts[idx];
+    return `<strong>Projected hit date</strong> · ${info.label} · reaches ${milestones.target1.weight}kg at ${recentPaceKgWk.toFixed(2)} kg/wk`;
+  }, idx => projPts[idx].p);
+
+  // legend
+  document.getElementById("trajLegend").innerHTML = `
+    <div class="legend-item"><span class="legend-swatch" style="background:var(--series-1);"></span>Actual weight (baseline → today's 5DMA)</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:var(--baseline); background-image:repeating-linear-gradient(90deg, var(--baseline) 0 4px, transparent 4px 8px);"></span>Pace needed for Target 1</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:var(--series-2);"></span>${projectedHitDate ? `Projected hit date (at ${recentPaceKgWk.toFixed(2)} kg/wk)` : `Not losing weight at current pace — no projected hit date`}</div>
+  `;
+})();
+
+// ---------- RENDER: conversion % over time ----------
+// One point per day from Day 6 onward (see CONVERSION_TRACKING_START / conversionSeries above).
+// Early points are expected to swing widely — the cumulative deficit denominator is still tiny
+// in the first couple of days, so small day-to-day noise in the 5DMA translates into big % moves.
+// It should settle down as more days accumulate into the denominator (added 2026-08-24, per user
+// request, placed right after the big-picture trajectory chart above).
+(function renderConversionChart() {
+  const svg = document.getElementById("conversionChart");
+  const W = 640, H = 220, padL = 46, padR = 20, padT = 20, padB = 34;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+
+  if (conversionSeries.length === 0) {
+    svg.innerHTML = `<text x="${W/2}" y="${H/2}" text-anchor="middle" class="axis-label">No data yet — needs a 5DMA reading on or after ${formatDate(CONVERSION_TRACKING_START)}</text>`;
+    document.getElementById("conversionLegend").innerHTML = "";
+    return;
+  }
+
+  const n = conversionSeries.length;
+  // Fixed axis range 50-150% (set 2026-08-27, per user request). Any point outside this range
+  // simply isn't plotted — no clamping to the edge, since that would misleadingly show an
+  // out-of-range value sitting right at the boundary.
+  const yMin = 50, yMax = 150;
+
+  const x = i => n === 1 ? padL + plotW / 2 : padL + (i / (n - 1)) * plotW;
+  const y = v => padT + (1 - (v - yMin) / (yMax - yMin)) * plotH;
+
+  let svgContent = "";
+
+  const ySteps = 5;
+  for (let s = 0; s <= ySteps; s++) {
+    const v = yMin + (s / ySteps) * (yMax - yMin);
+    const yy = y(v);
+    svgContent += `<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" class="grid-line"/>`;
+    svgContent += `<text x="${padL - 8}" y="${yy + 3}" text-anchor="end" class="axis-label">${Math.round(v)}%</text>`;
+  }
+
+  // 100% reference line — the point where actual weight lost exactly matches the calorie math.
+  const y100 = y(100);
+  svgContent += `<line x1="${padL}" y1="${y100}" x2="${W-padR}" y2="${y100}" stroke="var(--baseline)" stroke-width="1.5" stroke-dasharray="5,5"/>`;
+
+  svgContent += `<line x1="${padL}" y1="${padT+plotH}" x2="${W-padR}" y2="${padT+plotH}" class="baseline-line"/>`;
+
+  const pts = conversionSeries.map((p, i) => ({ x: x(i), y: (p.convPct !== null && p.convPct >= yMin && p.convPct <= yMax) ? y(p.convPct) : null, m: p }));
+  const linePts = pts.filter(p => p.y !== null);
+  if (linePts.length > 1) {
+    svgContent += `<polyline points="${linePts.map(p => `${p.x},${p.y}`).join(" ")}" fill="none" stroke="var(--series-3)" stroke-width="2.5" stroke-linecap="round"/>`;
+  }
+  pts.forEach((pt, i) => {
+    if (pt.y === null) return;
+    const isPartial = pt.m.partial;
+    svgContent += `<circle class="conv-dot" data-idx="${i}" cx="${pt.x}" cy="${pt.y}" r="${isPartial ? 5 : 4}" fill="${isPartial ? "var(--surface-1)" : "var(--series-3)"}" stroke="var(--series-3)" stroke-width="2"/>`;
+  });
+
+  const labelEvery = Math.max(1, Math.ceil(n / 6));
+  conversionSeries.forEach((p, i) => {
+    if (i % labelEvery !== 0 && i !== n - 1) return;
+    svgContent += `<text x="${x(i)}" y="${padT+plotH+18}" text-anchor="middle" class="axis-label">${formatDate(p.date).replace(", 2026", "")}</text>`;
+  });
+
+  svg.innerHTML = svgContent;
+
+  const tooltip = document.getElementById("conversionTooltip");
+  svg.querySelectorAll(".conv-dot").forEach(dot => {
+    dot.addEventListener("mouseenter", () => {
+      const idx = Number(dot.getAttribute("data-idx"));
+      const info = pts[idx].m;
+      tooltip.innerHTML = `<strong>${formatDate(info.date)}</strong>${info.partial ? " (in progress)" : ""}<br/>Ideal: ${info.idealKg.toFixed(2)}kg · Actual: ${info.actualKg.toFixed(2)}kg<br/>Conversion: ${info.convPct !== null ? info.convPct.toFixed(0) + "%" : "—"}`;
+      tooltip.style.opacity = 1;
+      const rect = svg.getBoundingClientRect();
+      const scale = rect.width / W;
+      tooltip.style.left = (pts[idx].x * scale) + "px";
+      tooltip.style.top = (pts[idx].y * scale - 46) + "px";
+    });
+    dot.addEventListener("mouseleave", () => { tooltip.style.opacity = 0; });
+  });
+
+  const lastPoint = conversionSeries[conversionSeries.length - 1];
+  document.getElementById("conversionLegend").innerHTML = `
+    <div class="legend-item"><span class="legend-swatch" style="background:var(--series-3);"></span>Conversion % (actual weight lost ÷ calorie-math-implied weight lost)</div>
+    <div class="legend-item"><span class="legend-swatch" style="background:var(--baseline); background-image:repeating-linear-gradient(90deg, var(--baseline) 0 4px, transparent 4px 8px);"></span>100% — actual loss exactly matches the calorie math</div>
+    ${lastPoint && lastPoint.partial ? `<div class="legend-item">Hollow dot = today, still in progress</div>` : ""}
+  `;
+})();
+
+// ---------- RENDER: daily weight zoomed chart ----------
+// Evenly-spaced by logged day (not by calendar date) and tightly scaled to just the actual
+// weight values, so small day-to-day moves that get flattened on the 18-week chart above are
+// still visible. Set 2026-08-14 per user request ("I can't see the kinks").
+(function renderDailyZoom() {
+  const svg = document.getElementById("dailyZoomChart");
+  const W = 640, H = 180, padL = 40, padR = 40, padT = 26, padB = 34;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+
+  const pts = dailySeries.map((d, i) => ({ date: d.date, weight: d.weight, i }));
+  const n = pts.length;
+  const weights = pts.map(p => p.weight);
+  const rawMin = Math.min(...weights), rawMax = Math.max(...weights);
+  const span = rawMax - rawMin;
+  // Pad generously on a small span so single-day noise (e.g. 0.1-0.3kg) still reads as a
+  // visible kink rather than a flat line; fall back to a fixed ±0.6kg window if all days match.
+  const pad = span > 0 ? Math.max(span * 0.35, 0.2) : 0.6;
+  const yMin = rawMin - pad, yMax = rawMax + pad;
+
+  const x = i => n === 1 ? padL + plotW / 2 : padL + (i / (n - 1)) * plotW;
+  const y = w => padT + (1 - (w - yMin) / (yMax - yMin)) * plotH;
+
+  let svgContent = "";
+
+  // horizontal gridlines — 4 steps across the tight range
+  const ySteps = 4;
+  for (let i = 0; i <= ySteps; i++) {
+    const w = yMin + (i / ySteps) * (yMax - yMin);
+    const yy = y(w);
+    svgContent += `<line x1="${padL}" y1="${yy}" x2="${W - padR}" y2="${yy}" class="grid-line"/>`;
+    svgContent += `<text x="${padL - 8}" y="${yy + 3}" text-anchor="end" class="axis-label">${w.toFixed(1)}</text>`;
+  }
+  svgContent += `<line x1="${padL}" y1="${padT + plotH}" x2="${W - padR}" y2="${padT + plotH}" class="baseline-line"/>`;
+
+  // connecting line
+  const linePts = pts.map(p => `${x(p.i)},${y(p.weight)}`).join(" ");
+  svgContent += `<polyline points="${linePts}" fill="none" stroke="var(--series-1)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`;
+
+  // per-day delta labels between consecutive points (the "kinks")
+  pts.forEach((p, i) => {
+    if (i === 0) return;
+    const prev = pts[i - 1];
+    const delta = p.weight - prev.weight;
+    if (Math.abs(delta) < 0.001) return;
+    const midX = (x(prev.i) + x(p.i)) / 2;
+    const midY = (y(prev.weight) + y(p.weight)) / 2;
+    const sign = delta > 0 ? "+" : "−";
+    const cls = delta > 0 ? "delta-warn" : "delta-good";
+    svgContent += `<text x="${midX}" y="${midY - 8}" text-anchor="middle" class="point-sublabel" fill="${delta > 0 ? 'var(--warning)' : 'var(--good)'}">${sign}${Math.abs(delta).toFixed(2)}kg</text>`;
+  });
+
+  // points + value labels + day-index labels
+  pts.forEach((p, i) => {
+    const px = x(p.i), py = y(p.weight);
+    svgContent += `<circle cx="${px}" cy="${py}" r="5" fill="var(--series-1)" stroke="var(--surface-1)" stroke-width="2" class="zoom-dot" data-idx="${i}"/>`;
+    svgContent += `<text x="${px}" y="${py - 14}" text-anchor="middle" class="point-label">${p.weight.toFixed(2)}</text>`;
+    svgContent += `<text x="${px}" y="${padT + plotH + 20}" text-anchor="middle" class="point-sublabel">${formatDate(p.date).replace(", 2026", "")}</text>`;
+  });
+
+  svg.innerHTML = svgContent;
+
+  const tooltip = document.getElementById("zoomTooltip");
+  svg.querySelectorAll(".zoom-dot").forEach(dot => {
+    dot.addEventListener("mouseenter", () => {
+      const idx = +dot.getAttribute("data-idx");
+      const p = pts[idx];
+      const prev = pts[idx - 1];
+      const deltaText = prev ? ` (${p.weight - prev.weight >= 0 ? "+" : "−"}${Math.abs(p.weight - prev.weight).toFixed(2)}kg vs. prior day)` : " (Day 1)";
+      tooltip.innerHTML = `<strong>${p.weight.toFixed(2)} kg</strong> · ${formatDate(p.date)}${deltaText}`;
+      tooltip.style.opacity = 1;
+      const rect = svg.getBoundingClientRect();
+      const scale = rect.width / W;
+      tooltip.style.left = (x(p.i) * scale) + "px";
+      tooltip.style.top = (y(p.weight) * scale - 34) + "px";
+    });
+    dot.addEventListener("mouseleave", () => { tooltip.style.opacity = 0; });
+  });
+})();
+
+// ---------- RENDER: calorie / protein meters ----------
+(function renderMeters() {
+  const container = document.getElementById("calorieMeters");
+  const pct = (v, max) => Math.min(100, (v / max) * 100);
+
+  const meters = [
+    {
+      name: "Calories logged",
+      figures: today.calories !== null ? `${today.calories} / ~${Math.round(maintenanceToday)} kcal maintenance` : `Not logged yet / ~${Math.round(maintenanceToday)} kcal maintenance`,
+      pct: today.calories !== null ? pct(today.calories, maintenanceToday) : 0,
+      color: (today.partial || today.calories === null) ? "var(--text-muted)" : (today.calories <= maintenanceToday ? "var(--good)" : "var(--warning)"),
+      note: today.calories === null
+        ? `Not logged yet today${isGymDay ? ` (maintenance estimate includes today's gym session, ~${Math.round(maintenanceToday)} kcal)` : ""}.`
+        : today.partial
+        ? `Day in progress — logged so far${isGymDay ? ` (maintenance estimate includes today's gym session, ~${Math.round(maintenanceToday)} kcal)` : ""}. More meals/activity still to come.`
+        : `${today.calories <= maintenanceToday ? "Under" : "Over"} maintenance by ${Math.abs(Math.round(maintenanceToday - today.calories))} kcal.`,
+    },
+    {
+      name: "Protein logged",
+      figures: today.protein !== null ? `${today.protein}g / ~${Math.round(proteinTarget)}g suggested` : `Not logged yet / ~${Math.round(proteinTarget)}g suggested`,
+      pct: today.protein !== null ? pct(today.protein, proteinTarget) : 0,
+      color: today.protein !== null ? "var(--series-2)" : "var(--text-muted)",
+      note: today.protein !== null
+        ? `Suggested target is ${profile.proteinGPerKg}g/kg body weight (${Math.round(proteinTarget)}g) to help preserve muscle on Mounjaro — not a doctor-set figure.`
+        : `Not logged yet today. Suggested target is ${profile.proteinGPerKg}g/kg body weight (${Math.round(proteinTarget)}g).`,
+    },
+    {
+      name: "Water logged",
+      figures: today.water !== null ? `${today.water}L` : "Not logged yet",
+      pct: today.water !== null ? pct(today.water, 2.5) : 0,
+      color: today.water !== null ? "var(--series-3)" : "var(--text-muted)",
+      note: `Tracked to help spot bloating/constipation patterns — general reference line at 2.5L, no hard target set.`,
+    },
+  ];
+
+  container.innerHTML = meters.map(m => `
+    <div class="meter">
+      <div class="meter-head">
+        <span class="meter-name">${m.name}</span>
+        <span class="meter-figures">${m.figures}</span>
+      </div>
+      <div class="meter-track">
+        <div class="meter-fill" style="width:${m.pct}%; background:${m.color};"></div>
+      </div>
+      <p class="meter-note">${m.note}</p>
+    </div>
+  `).join("");
+})();
+
+// ---------- RENDER: projection vs targets ----------
+(function renderProjectionRow() {
+  document.getElementById("projectionCaption").textContent =
+    `Straight-line projection from today using ${recentPaceSource} — focused on Target 1 for now`;
+
+  const tiles = [
+    {
+      label: "Current trend pace",
+      value: recentPaceKgWk.toFixed(2),
+      unit: "kg/wk",
+      delta: recentPaceKgWk >= requiredPaceKgWk ? "at or above pace needed" : `below the ~${requiredPaceKgWk.toFixed(2)} kg/wk needed`,
+      deltaClass: recentPaceKgWk >= requiredPaceKgWk ? "delta-good" : "delta-warn",
+    },
+    {
+      // Revised 2026-08-19, per user request: show the DATE this trend reaches Target 1's
+      // weight, rather than the weight this trend would reach on Target 1's fixed date.
+      label: "Projected to hit target",
+      value: projectedHitDate ? formatDate(projectedHitDate) : "—",
+      unit: "",
+      delta: projectedHitDate
+        ? (scheduleGapWeeks > 0.5
+            ? `~${scheduleGapWeeks.toFixed(1)} wks behind the ${formatDate(milestones.target1.date)} schedule`
+            : scheduleGapWeeks < -0.5
+              ? `~${Math.abs(scheduleGapWeeks).toFixed(1)} wks ahead of the ${formatDate(milestones.target1.date)} schedule`
+              : `on track for the ${formatDate(milestones.target1.date)} schedule`)
+        : `not losing weight at ${recentPaceKgWk.toFixed(2)} kg/wk — no projected date`,
+      deltaClass: projectedHitDate ? (scheduleGapWeeks > 0.5 ? "delta-warn" : "delta-good") : "delta-warn",
+    },
+    {
+      label: "Weeks to Target 1's date",
+      value: weeksToT1.toFixed(1),
+      unit: "wks",
+      delta: `by ${formatDate(milestones.target1.date)}`,
+      deltaClass: "delta-muted",
+    },
+  ];
+  document.getElementById("projectionRow").innerHTML = tiles.map(t => `
+    <div class="stat-tile">
+      <p class="stat-label">${t.label}</p>
+      <p class="stat-value">${t.value}${t.unit ? `<span class="stat-unit"> ${t.unit}</span>` : ""}</p>
+      <p class="stat-delta ${t.deltaClass}">${t.delta}</p>
+    </div>
+  `).join("");
+})();
+
+// ---------- RENDER: 5-day moving average mini charts ----------
+(function renderFiveDayTrends() {
+  const container = document.getElementById("fiveDayTrends");
+  const specs = [
+    { key: "weight", title: "Weight", unit: "kg", color: "var(--series-1)", decimals: 2 },
+    { key: "protein", title: "Protein", unit: "g", color: "var(--series-2)", decimals: 0 },
+    { key: "deficit", title: "Calorie deficit", unit: "kcal", color: "var(--series-3)", decimals: 0 },
+  ];
+  const maSeries = { weight: weightMA, protein: proteinMA, deficit: deficitMA };
+
+  specs.forEach(spec => {
+    const card = document.createElement("div");
+    card.className = "mini-chart-card";
+    const ma = maSeries[spec.key];
+    const latestMA = [...ma].reverse().find(v => v !== null && v !== undefined);
+    const daysAvailable = dailySeries.filter(d => d[spec.key] !== null && d[spec.key] !== undefined).length;
+    const needMore = Math.max(0, MA_WINDOW - daysAvailable);
+
+    const headHtml = `
+      <div class="mini-chart-head">
+        <span class="mini-chart-title">${spec.title} (5DMA)</span>
+        <span class="mini-chart-value">${latestMA !== undefined ? latestMA.toFixed(spec.decimals) + spec.unit : "—"}</span>
+      </div>
+    `;
+
+    if (needMore > 0) {
+      card.innerHTML = headHtml + `
+        <svg width="100%" height="70" viewBox="0 0 260 70" preserveAspectRatio="xMidYMid meet" style="opacity:0.6;"></svg>
+        <p class="mini-empty">Needs ${needMore} more logged day${needMore === 1 ? "" : "s"} (${daysAvailable}/${MA_WINDOW} so far)</p>
+      `;
+      container.appendChild(card);
+      return;
+    }
+
+    // Plot ONLY the 5DMA series itself (not the underlying raw daily values — mixing them in
+    // reads as if there were several 5DMA points already, when there might be just one). Each
+    // point sits at the calendar-day index of the LAST day in its trailing window (so the first
+    // point, the Day 1-5 average, is plotted at Day 5's x-position — see rolling-5DMA convention).
+    const W = 260, H = 70, padL = 4, padR = 4, padT = 8, padB = 8;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const maVals = ma.filter(v => v !== null && v !== undefined);
+    const yMin = Math.min(...maVals), yMax = Math.max(...maVals);
+    const range = (yMax - yMin) || 1;
+    const n = dailySeries.length;
+    const x = i => padL + (n === 1 ? plotW / 2 : (i / (n - 1)) * plotW);
+    const y = v => range === 1 && yMax === yMin ? padT + plotH / 2 : padT + (1 - (v - yMin) / range) * plotH;
+
+    let maPts = [];
+    dailySeries.forEach((d, i) => {
+      if (ma[i] !== null && ma[i] !== undefined) maPts.push({ x: x(i), y: y(ma[i]) });
+    });
+
+    let maLine = "", maDots = "";
+    if (maPts.length > 1) {
+      maLine = `<polyline points="${maPts.map(p => `${p.x},${p.y}`).join(" ")}" fill="none" stroke="${spec.color}" stroke-width="2.5" stroke-linecap="round"/>`;
+    }
+    // Always draw a dot per actual 5DMA reading (so a single reading still reads as data, not a blank chart).
+    maDots = maPts.map(p => `<circle cx="${p.x}" cy="${p.y}" r="3.5" fill="${spec.color}" stroke="var(--surface-1)" stroke-width="1.5"/>`).join("");
+
+    card.innerHTML = headHtml + `
+      <svg width="100%" height="70" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+        ${maLine}
+        ${maDots}
+      </svg>
+      ${maPts.length === 1 ? `<p class="mini-empty">1 reading so far (Day 1-${MA_WINDOW} average) — a trend line appears once a second reading lands tomorrow.</p>` : ""}
+    `;
+    container.appendChild(card);
+  });
+})();
+
+// ---------- RENDER: averages & trends ----------
+(function renderTrends() {
+  const body = document.getElementById("trendsBody");
+  if (loggedDays < 3) {
+    body.innerHTML = `
+      <div class="empty-state">
+        Only <strong>${loggedDays}</strong> day${loggedDays === 1 ? "" : "s"} logged so far — averages below are based on that.
+        Trend lines (steps/calories/protein over time) will appear here once a few more days are in.
+      </div>
+      <table class="data-table" style="margin-top:12px;">
+        <tr><th>Metric</th><th>Average to date</th><th>Today</th></tr>
+        <tr><td>Steps</td><td>${avgSteps !== null ? avgSteps.toFixed(0) : "—"}</td><td>${today.steps ?? "pending EOD"}</td></tr>
+        <tr><td>Calories</td><td>${avgCalories !== null ? avgCalories.toFixed(0) : "—"}</td><td>${today.calories}${today.partial ? " (partial)" : ""}</td></tr>
+        <tr><td>Protein</td><td>${avgProtein !== null ? avgProtein.toFixed(0) + "g" : "—"}</td><td>${today.protein}g${today.partial ? " (partial)" : ""}</td></tr>
+        <tr><td>Water</td><td>${avgWater !== null ? avgWater.toFixed(2) + "L" : "—"}</td><td>${today.water}L</td></tr>
+      </table>
+    `;
+  } else {
+    // Averages-to-date + a simple trend read per metric: compare the average of the earlier
+    // half of logged days vs. the later half (chronological, using sortedDays so it's robust to
+    // insertion order). This was previously an unfinished placeholder — implemented 2026-08-19.
+    function trendDirection(key) {
+      const series = sortedDays.map(d => d[key]).filter(v => v !== null && v !== undefined);
+      if (series.length < 4) return { arrow: "→", label: "not enough data yet for a trend read" };
+      const mid = Math.floor(series.length / 2);
+      const firstAvg = series.slice(0, mid).reduce((a, b) => a + b, 0) / mid;
+      const secondAvg = series.slice(mid).reduce((a, b) => a + b, 0) / (series.length - mid);
+      const diff = secondAvg - firstAvg;
+      const pctDiff = firstAvg !== 0 ? (diff / firstAvg) * 100 : 0;
+      if (Math.abs(pctDiff) < 5) return { arrow: "→", label: "flat vs. earlier days" };
+      return diff > 0
+        ? { arrow: "↑", label: `up ~${Math.abs(pctDiff).toFixed(0)}% vs. earlier days` }
+        : { arrow: "↓", label: `down ~${Math.abs(pctDiff).toFixed(0)}% vs. earlier days` };
+    }
+    const metrics = [
+      { key: "steps", label: "Steps", avgVal: avgSteps, todayVal: today.steps, fmt: v => v.toFixed(0), todayFmt: v => v },
+      { key: "calories", label: "Calories", avgVal: avgCalories, todayVal: today.calories, fmt: v => v.toFixed(0), todayFmt: v => v },
+      { key: "protein", label: "Protein", avgVal: avgProtein, todayVal: today.protein, fmt: v => v.toFixed(0) + "g", todayFmt: v => v + "g" },
+      { key: "water", label: "Water", avgVal: avgWater, todayVal: today.water, fmt: v => v.toFixed(2) + "L", todayFmt: v => v + "L" },
+    ];
+    const rows = metrics.map(m => {
+      const trend = trendDirection(m.key);
+      const todayCell = m.todayVal !== null && m.todayVal !== undefined
+        ? `${m.todayFmt(m.todayVal)}${today.partial && m.key !== "steps" ? " (partial)" : ""}`
+        : (m.key === "steps" ? "pending EOD" : "not logged yet");
+      return `<tr>
+        <td>${m.label}</td>
+        <td>${m.avgVal !== null ? m.fmt(m.avgVal) : "—"}</td>
+        <td>${todayCell}</td>
+        <td>${trend.arrow} <span class="stat-delta delta-muted" style="display:inline;">${trend.label}</span></td>
+      </tr>`;
+    }).join("");
+    body.innerHTML = `
+      <div class="empty-state">
+        Averages across all <strong>${loggedDays}</strong> logged days, with a simple trend read comparing the earlier
+        half of logged days to the more recent half for each metric.
+      </div>
+      <table class="data-table" style="margin-top:12px;">
+        <tr><th>Metric</th><th>Average to date</th><th>Today</th><th>Trend</th></tr>
+        ${rows}
+      </table>
+    `;
+  }
+})();
+
+// ---------- RENDER: today's log table ----------
+(function renderToday() {
+  document.getElementById("todayCaption").textContent = today.partial ? "Still being logged" : "Complete";
+  const rows = [
+    ["Weight", `${today.weight} kg`],
+    ["Dose", today.dose ?? "not logged yet"],
+    ["Calories", today.calories !== null ? `${today.calories}${today.partial ? " (partial)" : ""}` : "not logged yet"],
+    ["Protein", today.protein !== null ? `${today.protein}g${today.partial ? " (partial)" : ""}` : "not logged yet"],
+    ["Water", today.water !== null ? `${today.water}L` : "not logged yet"],
+    ["Steps", today.steps ?? "pending (log at EOD)"],
+    ["Activity", today.activity ?? "not logged yet"],
+    ["Bowel/bloating", today.bowel ?? "not logged yet"],
+  ];
+  document.getElementById("todayTable").innerHTML = rows.map(([k,v]) => `<tr><td class="emph">${k}</td><td>${v}</td></tr>`).join("");
+})();
+
+// ---------- RENDER: assumptions ----------
+document.getElementById("assumptions").innerHTML = `
+  Weight trajectory, pace, and projection calcs are all anchored to a baseline of ${milestones.start.weight}kg (average of the first 5 logged days, Day 1-5) positioned at Day 1 of tracking (${formatDate(milestones.start.date)}) — not the literal Day 1 reading, and not the original
+  pre-tracking Mounjaro journey (which started ~Oct 2025 at 104.5kg; that history is background context only and isn't used in any calculation here). Maintenance calories estimated via Mifflin-St Jeor (male, ${profile.age}y, ${profile.heightCm}cm, ${milestones.current.weight}kg) ×
+  activity factor ${profile.activityFactor} (sedentary outside workouts) → BMR ≈ ${Math.round(bmr)} kcal, maintenance ≈ ${Math.round(maintenanceBase)} kcal on rest days,
+  ≈ ${Math.round(maintenanceBase + profile.gymBonusKcal)} kcal on gym days (+${profile.gymBonusKcal} kcal estimated for a 40-min light-weights session), recomputed daily as weight
+  changes. This is an estimate, not a lab-measured number — treat deficit figures as directional. Protein target is a general 1.2–1.6 g/kg suggestion for muscle preservation
+  during GLP-1 weight loss, not a clinician-set figure. 5-day averages use a trailing window and only appear once 5 consecutive logged days feed them; calorie-deficit and protein
+  averages skip any day still being logged (marked "partial"). The weight projection extends a straight line from today at ${recentPaceKgWk.toFixed(2)} kg/wk (${recentPaceSource})
+  and shows the date this trend actually reaches Target 1's weight (revised 2026-08-19) — it's a linear estimate, not a forecast, and will move as more real days come in; if the
+  current pace isn't losing weight, no projected date is shown. Focus is narrowed to Target 1 (mid-Dec 2026) for now — Target 2
+  (mid-Jun 2027) is de-prioritized and not shown on the chart or projections. The chart's y-axis is fixed to 84–92kg by default so day-to-day movement is easier to read (it will
+  expand automatically only if actual or projected weight moves outside that band). Not medical advice — if the plateau continues, the standing recommendation is to raise it
+  with your prescribing doctor.
+`;
+
+// ---------- theme toggle ----------
+const root = document.documentElement;
+document.getElementById("themeToggle").addEventListener("click", () => {
+  const current = root.getAttribute("data-theme");
+  root.setAttribute("data-theme", current === "dark" ? "light" : "dark");
+});
+</script>
+</body>
+</html>
