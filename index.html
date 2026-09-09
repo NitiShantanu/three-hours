@@ -248,6 +248,13 @@
   .settings-form { display: flex; flex-direction: column; gap: 16px; }
   .save-hint { font-size: 0.78rem; color: var(--ink-muted); }
 
+  .attendance-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .monthnav {
+    font: inherit; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink); border-radius: 7px; cursor: pointer;
+  }
+  .monthnav:hover:not(:disabled) { background: var(--surface-2); }
+  .monthnav:disabled { opacity: 0.35; cursor: default; }
   .attendance-stat { font-family: "Fraunces", Georgia, serif; font-weight: 560; font-size: 1.3rem; margin-bottom: 10px; }
   .attendance-grid { display: flex; flex-wrap: wrap; gap: 6px; }
   .daychip {
@@ -284,6 +291,7 @@
   var currentTab = state.settings.bootstrapDone ? "today" : "library";
   var libraryFlash = null;
   var editingTaskId = null;
+  var historyMonthOffset = 0; // 0 = current month, -1 = one month back, etc. (view-only, not persisted)
   var artifactApi = null;
   try {
     if (window.claude && typeof window.claude.use === "function") {
@@ -499,19 +507,33 @@
       else delete s.overrides[dateISO].absent;
     });
   }
-  function daysThisMonthSoFar() {
+  function monthForOffset(offset) {
     var today = todayISO();
-    var year = today.slice(0, 4), month = today.slice(5, 7), dayNum = parseInt(today.slice(8, 10), 10);
-    var days = [];
-    for (var d = 1; d <= dayNum; d++) {
-      days.push(year + "-" + month + "-" + (d < 10 ? "0" + d : "" + d));
-    }
-    return days;
+    var y = parseInt(today.slice(0, 4), 10), m = parseInt(today.slice(5, 7), 10); // m is 1-12
+    var idx = (y * 12 + (m - 1)) + offset;
+    var ny = Math.floor(idx / 12);
+    var nm = idx - ny * 12 + 1;
+    return { year: ny, month: nm };
   }
-  function attendanceStats() {
-    var days = daysThisMonthSoFar();
-    var absentDays = days.filter(function (d) { return state.overrides[d] && state.overrides[d].absent; });
-    return { total: days.length, present: days.length - absentDays.length, days: days, absentDays: absentDays };
+  function daysInMonth(year, month) {
+    return new Date(Date.UTC(year, month, 0)).getUTCDate();
+  }
+  function daysForMonth(offset) {
+    var mk = monthForOffset(offset);
+    var isCurrent = offset === 0;
+    var todayDayNum = parseInt(todayISO().slice(8, 10), 10);
+    var lastDay = isCurrent ? todayDayNum : daysInMonth(mk.year, mk.month);
+    var mm = mk.month < 10 ? "0" + mk.month : "" + mk.month;
+    var days = [];
+    for (var d = 1; d <= lastDay; d++) {
+      days.push(mk.year + "-" + mm + "-" + (d < 10 ? "0" + d : "" + d));
+    }
+    return { year: mk.year, month: mk.month, isCurrent: isCurrent, days: days };
+  }
+  function attendanceStats(offset) {
+    var mk = daysForMonth(offset || 0);
+    var absentDays = mk.days.filter(function (d) { return state.overrides[d] && state.overrides[d].absent; });
+    return { total: mk.days.length, present: mk.days.length - absentDays.length, days: mk.days, absentDays: absentDays, year: mk.year, month: mk.month, isCurrent: mk.isCurrent };
   }
   function setBootstrap(taskId, iso) {
     persist(function (s) {
@@ -768,9 +790,15 @@
   }
 
   function renderHistory() {
-    var att = attendanceStats();
-    var monthName = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "long" }).format(new Date(todayISO() + "T00:00:00Z"));
-    var out = '<section><h2 class="section-title" style="margin-bottom:4px;">' + escapeHtml(monthName) + ' attendance</h2>' +
+    var att = attendanceStats(historyMonthOffset);
+    var monthName = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "long" }).format(new Date(Date.UTC(att.year, att.month - 1, 1)));
+    var heading = att.isCurrent ? monthName : (monthName + " " + att.year);
+    var out = '<section>' +
+      '<div class="attendance-head">' +
+        '<button class="monthnav" data-action="attendance-prev" aria-label="Previous month">&larr;</button>' +
+        '<h2 class="section-title" style="margin:0;">' + escapeHtml(heading) + ' attendance</h2>' +
+        '<button class="monthnav" data-action="attendance-next"' + (att.isCurrent ? ' disabled' : '') + ' aria-label="Next month">&rarr;</button>' +
+      '</div>' +
       '<div class="attendance-stat">' + att.present + ' / ' + att.total + ' days</div>' +
       '<div class="attendance-grid">' +
         att.days.map(function (d) {
@@ -851,6 +879,15 @@
         var currentlyAbsent = !!(state.overrides[d] && state.overrides[d].absent);
         setLeaveDay(d, !currentlyAbsent);
       });
+    });
+    var attPrevBtn = app.querySelector('[data-action="attendance-prev"]');
+    if (attPrevBtn) attPrevBtn.addEventListener("click", function () {
+      historyMonthOffset -= 1;
+      render();
+    });
+    var attNextBtn = app.querySelector('[data-action="attendance-next"]');
+    if (attNextBtn) attNextBtn.addEventListener("click", function () {
+      if (historyMonthOffset < 0) { historyMonthOffset += 1; render(); }
     });
     app.querySelectorAll("[data-backfill]").forEach(function (el) {
       el.addEventListener("click", function () {
