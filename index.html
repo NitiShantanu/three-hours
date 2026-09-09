@@ -248,6 +248,17 @@
   .settings-form { display: flex; flex-direction: column; gap: 16px; }
   .save-hint { font-size: 0.78rem; color: var(--ink-muted); }
 
+  .attendance-stat { font-family: "Fraunces", Georgia, serif; font-weight: 560; font-size: 1.3rem; margin-bottom: 10px; }
+  .attendance-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+  .daychip {
+    font: inherit; font-size: 0.78rem; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink-muted); border-radius: 7px; cursor: pointer;
+  }
+  .daychip:hover { background: var(--surface-2); color: var(--ink); }
+  .daychip.absent { background: var(--critical-bg); border-color: var(--critical); color: var(--critical); font-weight: 600; }
+  .leave-toggle-row { display: flex; justify-content: flex-end; margin-top: 6px; }
+  .leave-toggle-row .qbtn.on-leave { background: var(--critical-bg); border-color: var(--critical); color: var(--critical); }
+
   .overflow-note {
     font-size: 0.82rem; color: var(--critical); background: var(--critical-bg);
     border-radius: 7px; padding: 8px 10px;
@@ -373,6 +384,15 @@
     var ov = state.overrides[today] || { added: [], removed: [] };
     var budget = (ov.budgetOverride != null) ? ov.budgetOverride : state.settings.dailyBudgetMins;
 
+    if (ov.absent) {
+      return {
+        today: today, weekday: wd, absent: true, budget: budget, used: 0,
+        defaultBudget: state.settings.dailyBudgetMins, budgetOverridden: false,
+        required: [], suggested: [], added: [], finalList: [], removedDaily: [],
+        poolRemaining: [], onDemand: [], otherWeekday: [], overflow: false
+      };
+    }
+
     var daily = state.tasks.filter(function (t) { return t.category === "daily" && ov.removed.indexOf(t.id) === -1; });
 
     var weekdayCandidates = state.tasks.filter(function (t) { return t.category === "weekday" && t.weekday === wd; });
@@ -472,6 +492,27 @@
       if (s.overrides[today]) delete s.overrides[today].budgetOverride;
     });
   }
+  function setLeaveDay(dateISO, isAbsent) {
+    persist(function (s) {
+      if (!s.overrides[dateISO]) s.overrides[dateISO] = { added: [], removed: [] };
+      if (isAbsent) s.overrides[dateISO].absent = true;
+      else delete s.overrides[dateISO].absent;
+    });
+  }
+  function daysThisMonthSoFar() {
+    var today = todayISO();
+    var year = today.slice(0, 4), month = today.slice(5, 7), dayNum = parseInt(today.slice(8, 10), 10);
+    var days = [];
+    for (var d = 1; d <= dayNum; d++) {
+      days.push(year + "-" + month + "-" + (d < 10 ? "0" + d : "" + d));
+    }
+    return days;
+  }
+  function attendanceStats() {
+    var days = daysThisMonthSoFar();
+    var absentDays = days.filter(function (d) { return state.overrides[d] && state.overrides[d].absent; });
+    return { total: days.length, present: days.length - absentDays.length, days: days, absentDays: absentDays };
+  }
   function setBootstrap(taskId, iso) {
     persist(function (s) {
       var t = s.tasks.find(function (x) { return x.id === taskId; });
@@ -564,6 +605,14 @@
 
   function renderToday() {
     var plan = computeTodayPlan();
+
+    if (plan.absent) {
+      return '<section class="banner" style="background:var(--critical-bg);">' +
+        '<p><strong>Today’s marked as a leave day.</strong> No tasks are suggested, and it counts as absent in this month’s attendance.</p>' +
+        '<button class="btn ghost" style="border:1px solid var(--critical);color:var(--critical);" data-action="toggle-leave">Undo &mdash; she came after all</button>' +
+      '</section>';
+    }
+
     var pct = Math.min(100, Math.round((plan.used / plan.budget) * 100));
     var out = '';
 
@@ -579,6 +628,7 @@
           '<span class="section-sub">min today</span>' +
           (plan.budgetOverridden ? '<button class="qbtn" data-action="reset-today-budget">reset to usual (' + fmtDuration(plan.defaultBudget) + ')</button>' : '') +
         '</div>' +
+        '<div class="leave-toggle-row"><button class="qbtn" data-action="toggle-leave">She didn&rsquo;t come today</button></div>' +
       '</div>' +
     '</section>';
 
@@ -718,9 +768,26 @@
   }
 
   function renderHistory() {
+    var att = attendanceStats();
+    var monthName = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "long" }).format(new Date(todayISO() + "T00:00:00Z"));
+    var out = '<section><h2 class="section-title" style="margin-bottom:4px;">' + escapeHtml(monthName) + ' attendance</h2>' +
+      '<div class="attendance-stat">' + att.present + ' / ' + att.total + ' days</div>' +
+      '<div class="attendance-grid">' +
+        att.days.map(function (d) {
+          var dayNum = parseInt(d.slice(8, 10), 10);
+          var isAbsent = !!(state.overrides[d] && state.overrides[d].absent);
+          return '<button class="daychip' + (isAbsent ? ' absent' : '') + '" data-toggle-day="' + d + '" title="' + escapeHtml(fmtDateLong(d)) + '">' + dayNum + '</button>';
+        }).join('') +
+      '</div>' +
+      '<p class="section-sub" style="margin-top:8px;">Tap a day to mark it as a leave day, or undo one you marked by mistake.</p>' +
+    '</section>';
+
     var dates = Object.keys(state.history).filter(function (d) { return state.history[d].length; }).sort().reverse();
-    if (!dates.length) return '<section><p class="empty-note">Nothing logged yet &mdash; once tasks get checked off on the Today tab, they’ll show up here.</p></section>';
-    var out = '<section>';
+    if (!dates.length) {
+      out += '<section><p class="empty-note">Nothing logged yet &mdash; once tasks get checked off on the Today tab, they’ll show up here.</p></section>';
+      return out;
+    }
+    out += '<section>';
     dates.slice(0, 60).forEach(function (d) {
       var ids = state.history[d];
       var mins = ids.reduce(function (s, id) { var t = taskById(id); return s + (t ? t.timeMins : 0); }, 0);
@@ -772,6 +839,19 @@
     });
     var resetBudgetBtn = app.querySelector('[data-action="reset-today-budget"]');
     if (resetBudgetBtn) resetBudgetBtn.addEventListener("click", resetTodayBudget);
+    var toggleLeaveBtn = app.querySelector('[data-action="toggle-leave"]');
+    if (toggleLeaveBtn) toggleLeaveBtn.addEventListener("click", function () {
+      var today = todayISO();
+      var currentlyAbsent = !!(state.overrides[today] && state.overrides[today].absent);
+      setLeaveDay(today, !currentlyAbsent);
+    });
+    app.querySelectorAll("[data-toggle-day]").forEach(function (el) {
+      el.addEventListener("click", function () {
+        var d = el.getAttribute("data-toggle-day");
+        var currentlyAbsent = !!(state.overrides[d] && state.overrides[d].absent);
+        setLeaveDay(d, !currentlyAbsent);
+      });
+    });
     app.querySelectorAll("[data-backfill]").forEach(function (el) {
       el.addEventListener("click", function () {
         var id = el.getAttribute("data-backfill");
